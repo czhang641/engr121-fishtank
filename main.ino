@@ -6,21 +6,25 @@
 //need to do salnity math but finished logic for it
 
 //static vars
-const long interval = 1000;
-const int tempthreshold = 5; //5 degrees c or whatever if i'm too lazy to fix it
-const int salnthreshold = .3; //0.3% i think we agreed on
-
+const long interval = 1000; // how often we check the salnity.
+const int tempthreshold = 25; //5 degrees c or whatever if i'm too lazy to fix it
+const int TempUCL = 28; //Upper control limit
+const int TempLCL = 23; //Lower control limit
+const int SalnTarget = .1; //in percent
+const int salnthreshold = .03; //0.3% i think we agreed on
+const int SalnUCL = 0.13; //upper control limit
+const int SalnLCL = 0.07; //Lower control limit
 
 //changing vars
 unsigned long previousMillis = 0;
 int temp = 0;
-int tempState = 0; // can be -2,-1,0,1,2. 2 means needs major corrections, 1 means minor, 0 means none
 int sal = 0;
-int salState = 0; //same as temp state
+int salState = 0; // can be -2,-1,0,1,2. 2 means needs major corrections, 1 means minor, 0 means none
 int SalTimeStart = 0;
 int SalTimeEnd = 0;
 int Valve1OpenTime = 0;
 int deadtime = 0;
+int idk = 0;
 
 //pins go where
 //7,8,9 are relays
@@ -31,7 +35,7 @@ void setup() {
   pinMode(8, OUTPUT); //relay output, volvo 2, salty?
   pinMode(9, OUTPUT); //relay output, thermresitor
   delay(100);
-  digitalWrite(7, HIGH); //testing relays
+  digitalWrite(7, HIGH); //testing relays fun clicks
   delay(50);
   digitalWrite(8, HIGH);
   delay(50);
@@ -49,49 +53,33 @@ void loop() {
   if (currentMillis - previousMillis >= interval) //Checks for temp and sal
   {
     previousMillis = currentMillis;
-    CheckTemp();
     CheckSaln();
-    if (temp < 0) //put temp threshold here
+    if (sal > SalnUCL || sal < SalnLCL)
     {
-      if (temp > tempthreshold / 2)
+      if (sal > SalnUCL)
       {
-        tempState = -2;
-      }
-      else
-      {
-        tempState = -1;
-      }
-    }
-    else
-    {
-      tempState = 0;
-    }
-    if (abs(sal) > salnthreshold)
-    {
-      if (sal > 0)
-      {
-        if (sal > salnthreshold / 2)
+        if (sal > SalnUCL*2)
         {
           salState = 2; //should do calculations for valve open
-          Valve1OpenTime = 5;//SalTimeCalc();
+          Valve1OpenTime = SalTimeCalc();
         }
         else
         {
           salState = 1;
-          Valve1OpenTime = 5;//SalTimeCalc();
+          Valve1OpenTime = SalTimeCalc();
         }
       }
-      if (sal < 0)
+      if (sal < SalnLCL)
       {
-        if (sal > salnthreshold / 2)
+        if (sal < SalnLCL*2)
         {
           salState = -2;
-          Valve1OpenTime = 5;//SalTimeCalc();
+          Valve1OpenTime = SalTimeCalc();
         }
         else
         {
           salState = -1;
-          Valve1OpenTime = 5;//SalTimeCalc();
+          Valve1OpenTime = SalTimeCalc();
         }
       }
     }
@@ -104,7 +92,7 @@ void loop() {
   {
     digitalWrite(7, HIGH); //starts adding di cuz too much salt
     SalTimeStart = currentMillis; //set to when the valve is open
-    Valve1OpenTime = 5;//SalTimeCalc();//run calc again for stage 1
+    Valve1OpenTime = SalTimeCalc();//run calc again for stage 1
     deadtime = 1000;//do dead time calc or if you want static idk what you people want
   }
   if (salState == 2 && currentMillis == Valve1OpenTime + SalTimeStart) //check to stop valve open
@@ -116,7 +104,7 @@ void loop() {
   }
   if (salState == 1 && currentMillis == SalTimeEnd + deadtime)
   {
-    Valve1OpenTime = 5;//SalTimeCalc();//run calc again for stage 1
+    Valve1OpenTime = SalTimeCalc();//run calc again for stage 1
     digitalWrite(7, HIGH);
     SalTimeStart = currentMillis; //set to when the valve is open
   }
@@ -131,7 +119,7 @@ void loop() {
   {
     digitalWrite(8, HIGH); //starts adding di cuz too much salt
     SalTimeStart = currentMillis; //set to when the valve is open
-    Valve1OpenTime = 5;//SalTimeCalc();//run calc again for stage 1
+    Valve1OpenTime = SalTimeCalc();//run calc again for stage 1
     deadtime = 1000;//do dead time calc or if you want static idk what you people want
   }
   if (salState == -2 && currentMillis == Valve1OpenTime + SalTimeStart) //check to stop valve open
@@ -143,7 +131,7 @@ void loop() {
   }
   if (salState == -1 && currentMillis == SalTimeEnd + deadtime)
   {
-    Valve1OpenTime = 5;//SalTimeCalc();//run calc again for stage 1
+    Valve1OpenTime = SalTimeCalc();//run calc again for stage 1
     digitalWrite(8, HIGH);
     SalTimeStart = currentMillis; //set to when the valve is open
   }
@@ -154,21 +142,33 @@ void loop() {
     SalTimeEnd = currentMillis;
     deadtime = 0; //set dead time to 0
   }
-  if(temp > tempthreshold)
-  {
-    digitalWrite(9,LOW);
-  }
-  if(temp < tempthreshold)
+  //######Begin Heater Logic#######
+  CheckTemp();
+  if(temp < TempLCL)
   {
     digitalWrite(9,HIGH);
   }
+  if(temp > TempUCL) //Shutoff when heater is above threshold
+  {
+    digitalWrite(9,LOW);
+  }
 }
 
-
+// note have to use float to return a value.
 void CheckTemp()
 {
   temp = analogRead(A0); //math stuff
   //https://learn.adafruit.com/thermistor/using-a-thermistor
+  // values from https://www.digikey.com/product-detail/en/cantherm/MF52A2103J3470/317-1258-ND/1191033
+  temp = 1023 / temp - 1;
+  temp = 10000 / temp;
+  float steinhart;
+  steinhart = temp / 10000;
+  steinhart = log(steinhart);
+  steinhart /= 3470;
+  steinhart += 1.0 / (25 + 273.15);
+  steinhart = 1.0 / steinhart;
+  steinhart -= 273.15;
   return;
 }
 void CheckSaln()
@@ -176,11 +176,11 @@ void CheckSaln()
   sal = analogRead(A1); //more math stuff
   return;
 }
-void SalTimeCalc()
+float SalTimeCalc()
 {
   //math
-  delay(1);
-  return;
+  delay(1);//has to do math to find out how long to open valve
+  return idk;
 }
 void HeatTimeCalc()
 {
